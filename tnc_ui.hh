@@ -923,7 +923,7 @@ private:
     void handle_mouse(MEVENT& event) {
         int rows, cols;
         getmaxyx(stdscr, rows, cols);
-        // (void)rows;  
+        (void)rows;  
         
         if (event.bstate & BUTTON1_CLICKED || event.bstate & BUTTON1_PRESSED) {
             // Tab clicks 

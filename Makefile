@@ -1,6 +1,7 @@
 CXX = g++
+CC = gcc
 CXXFLAGS = -std=c++17 -O3 -march=native -Wall -Wextra
-LDFLAGS = -lpthread -lncurses -ldl -lm
+LDFLAGS = -lpthread  -ltinfo -lncurses -ldl -lm
 
 # dependencies
 AICODIX_DSP ?= ../dsp
