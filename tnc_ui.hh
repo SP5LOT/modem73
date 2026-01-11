@@ -30,9 +30,7 @@ const std::vector<std::string> MODULATION_OPTIONS = {
     "BPSK", "QPSK", "8PSK", "QAM16", "QAM64", "QAM256", "QAM1024", "QAM4096"
 };
 
-const std::vector<std::string> CODE_RATE_OPTIONS = {
-    "1/2", "2/3", "3/4", "5/6"
-};
+const std::vector<std::string> CODE_RATE_OPTIONS = {"1/2", "2/3", "3/4", "5/6", "1/4"};
 
 const std::vector<std::string> PTT_TYPE_OPTIONS = {
     "NONE", "RIGCTL", "VOX", "COM"
