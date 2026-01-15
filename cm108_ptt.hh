@@ -6,8 +6,9 @@
 #include <termios.h>
 #include <cerrno>
 #include <cstring>
+#include <iostream>
 
-#include "hidapi.h"
+#include <hidapi/hidapi.h>
 
 class CM108PTT {
 public:
@@ -30,8 +31,11 @@ public:
     }
 
     void close(){
-        hid_close(handle_);
-        res_ = hid_exit();
+        if (handle_) {
+            hid_close(handle_);
+            handle_ = nullptr;
+        }
+        hid_exit();
     }
 
     void set_ptt(bool on){
@@ -48,13 +52,14 @@ public:
             buf[2] = 0x00;
             buf[3] = 0x00;
         }
+        buf[4] = 0x00;
 
         res_ = hid_write(handle_, buf, 5);
     }
 
 private:
-    int res_;
-    int gpio_; //#PTT control pin GPIOX , where X should be 1,2,3,4 - GPIO3 on most devices
+    int res_ = 0;
+    int gpio_ = 3;  // PTT control pin GPIOX, where X should be 1,2,3,4 - GPIO3 on most devices
     const int cm108_on_[4] = {0x01, 0x02, 0x04, 0x08};
-	hid_device *handle_;
+    hid_device *handle_ = nullptr;
 };

@@ -35,7 +35,10 @@ const std::vector<std::string> CODE_RATE_OPTIONS = {
 };
 
 const std::vector<std::string> PTT_TYPE_OPTIONS = {
-    "NONE", "RIGCTL", "VOX", "COM", "CM108"
+    "NONE", "RIGCTL", "VOX", "COM"
+#ifdef WITH_CM108
+    , "CM108"
+#endif
 };
 
 const std::vector<std::string> PTT_LINE_OPTIONS = {
@@ -68,7 +71,7 @@ struct TNCUIState {
     int port = 8001;
     
     // PTT 
-    int ptt_type_index = 1;  // 0=NONE, 1=RIGCTL, 2=VOX 3=SERIAL 4=CM108
+    int ptt_type_index = 1;  // 0=NONE, 1=RIGCTL, 2=VOX
     
     // Rigctl settings (PTT type 1)
     std::string rigctl_host = "localhost";
@@ -87,8 +90,10 @@ struct TNCUIState {
     bool com_invert_dtr = false;
     bool com_invert_rts = false;
     
+#ifdef WITH_CM108
     // CM108 PTT settings (PTT type 4)
-    int cm108_gpio = 3; //GPIO pin to use for PTT, default 3
+    int cm108_gpio = 3;  // GPIO pin to use for PTT, default 3
+#endif
 
     int mtu_bytes = 0;
     int bitrate_bps = 0;
@@ -370,6 +375,10 @@ struct TNCUIState {
         fprintf(f, "com_ptt_line=%d\n", com_ptt_line);
         fprintf(f, "com_invert_dtr=%d\n", com_invert_dtr ? 1 : 0);
         fprintf(f, "com_invert_rts=%d\n", com_invert_rts ? 1 : 0);
+#ifdef WITH_CM108
+        fprintf(f, "# CM108 PTT\n");
+        fprintf(f, "cm108_gpio=%d\n", cm108_gpio);
+#endif
         fprintf(f, "# Network\n");
         fprintf(f, "port=%d\n", port);
         fprintf(f, "# Utils\n");
@@ -416,6 +425,9 @@ struct TNCUIState {
                 else if (strcmp(key, "com_ptt_line") == 0) com_ptt_line = atoi(value);
                 else if (strcmp(key, "com_invert_dtr") == 0) com_invert_dtr = atoi(value) != 0;
                 else if (strcmp(key, "com_invert_rts") == 0) com_invert_rts = atoi(value) != 0;
+#ifdef WITH_CM108
+                else if (strcmp(key, "cm108_gpio") == 0) cm108_gpio = atoi(value);
+#endif
                 else if (strcmp(key, "port") == 0) port = atoi(value);
                 else if (strcmp(key, "random_data_size") == 0) random_data_size = atoi(value);
             }
@@ -685,7 +697,9 @@ private:
         FIELD_COM_PORT,
         FIELD_COM_LINE,
         FIELD_COM_INVERT,
+#ifdef WITH_CM108
         FIELD_CM108_GPIO,
+#endif
         FIELD_NET_PORT,
         FIELD_PRESET,      
         FIELD_COUNT
@@ -838,10 +852,10 @@ private:
 
                         edit_text_field(FIELD_COM_PORT);
 
+#ifdef WITH_CM108
                     } else if (current_field_ == FIELD_CM108_GPIO) {
-
-
                         edit_text_field(FIELD_CM108_GPIO);
+#endif
 
                     } else if (current_field_ == FIELD_AUDIO_INPUT) {
 
@@ -1052,9 +1066,11 @@ private:
         } else if (field == FIELD_COM_PORT) {
             row = 20;  
             max_len = 20;
+#ifdef WITH_CM108
         } else if (field == FIELD_CM108_GPIO) {
             row = 20;  
             max_len = 1;
+#endif
         } else if (field == FIELD_NET_PORT) {
             if (state_.ptt_type_index == 2) {  //2 extra rows
                 row = 24;
@@ -1096,6 +1112,16 @@ private:
                 state_.com_port = buf;
                 state_.add_log("(!) COM port changed, restart required");
                 apply_settings();
+#ifdef WITH_CM108
+            } else if (field == FIELD_CM108_GPIO) {
+                try {
+                    int gpio = std::stoi(buf);
+                    if (gpio >= 1 && gpio <= 4) {
+                        state_.cm108_gpio = gpio;
+                        apply_settings();
+                    }
+                } catch (...) {}
+#endif
             } else if (field == FIELD_NET_PORT) {
                 try {
                     int port = std::stoi(buf);
@@ -1105,16 +1131,7 @@ private:
                         apply_settings();
                     }
                 } catch (...) {}
-            } else if (field == FIELD_CM108_GPIO) {
-                try {
-                    int gpio = std::stoi(buf);
-                    if (gpio >= 1 && gpio <= 4) {
-                        state_.cm108_gpio = gpio;
-                        apply_settings();
-                    }
-                } catch (...) {}
             }
-
         }
         
         nodelay(stdscr, TRUE);
@@ -1133,6 +1150,13 @@ private:
                 return true;
             }
         }
+#ifdef WITH_CM108
+        if (state_.ptt_type_index != 4) {  // not CM108
+            if (field == FIELD_CM108_GPIO) {
+                return true;
+            }
+        }
+#endif
         return false;
     }
     
@@ -1168,7 +1192,11 @@ private:
             case FIELD_AUDIO_OUTPUT:
                 break;
             case FIELD_PTT_TYPE:
+#ifdef WITH_CM108
                 state_.ptt_type_index = (state_.ptt_type_index + delta + 5) % 5;
+#else
+                state_.ptt_type_index = (state_.ptt_type_index + delta + 4) % 4;
+#endif
                 break;
             case FIELD_VOX_FREQ:
                 state_.vox_tone_freq += delta * 100;
@@ -2041,11 +2069,13 @@ private:
                 if (field == FIELD_COM_INVERT) return row;
                 row++;
             }
-            // CM108 field, only when CM108 selected as ptt
+#ifdef WITH_CM108
+            // CM108 field, only when CM108 selected as PTT
             if (state_.ptt_type_index == 4) {
                 if (field == FIELD_CM108_GPIO) return row;
                 row++;
             }
+#endif
             row++;
             // NETWORK section
             row++; // header
@@ -2276,7 +2306,7 @@ private:
             }
             row++;
         }
-
+#ifdef WITH_CM108
         if (state_.ptt_type_index == 4) {  // CM108
             dy = visible_y(row);
             if (dy >= 0) {
@@ -2286,6 +2316,7 @@ private:
             }
             row++;
         }
+#endif
         row++;
         
         // Network section
