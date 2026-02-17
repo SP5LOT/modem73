@@ -101,6 +101,9 @@ struct TNCConfig {
     // Fragmentation settings
     bool fragmentation_enabled = false;
     
+    // TX blanking
+    bool tx_blanking_enabled = false;
+    
     // Settings file path
     std::string config_file = "";
 };

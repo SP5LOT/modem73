@@ -252,6 +252,7 @@ public:
         }
         
         std::cerr << "Fragmentation: " << (config_.fragmentation_enabled ? "enabled" : "disabled") << std::endl;
+        std::cerr << "TX Blanking: " << (config_.tx_blanking_enabled ? "enabled" : "disabled") << std::endl;
         
         // Show PTT status
         switch (config_.ptt_type) {
@@ -533,6 +534,10 @@ private:
             std::cerr << packet_visualize(data.data(), data.size(), true, config_.fragmentation_enabled) << std::endl;
         }
         
+        if (config_.tx_blanking_enabled) {
+            tx_blanking_active_ = true;
+        }
+        
 #ifdef WITH_UI
         if (g_ui_state) {
             g_ui_state->transmitting = true;
@@ -554,6 +559,7 @@ private:
         
         if (samples.empty()) {
             ui_log("TX: Encoding failed");
+            tx_blanking_active_ = false;
 #ifdef WITH_UI
             if (g_ui_state) g_ui_state->transmitting = false;
 #endif
@@ -653,6 +659,8 @@ private:
             }
         }
         
+        tx_blanking_active_ = false;
+        
 #ifdef WITH_UI
         if (g_ui_state) {
             g_ui_state->transmitting = false;
@@ -748,10 +756,22 @@ private:
             }
         };
         
+        bool was_blanking = false;
+        
         while (rx_running_ && g_running) {
             int n = audio_->read(buffer.data(), buffer.size());
             if (n > 0) {
-                decoder_->process(buffer.data(), n, frame_callback);
+                bool blanking = tx_blanking_active_.load();
+                
+                if (blanking) {
+                    was_blanking = true;
+                } else {
+                    if (was_blanking) {
+                        decoder_->reset();
+                        was_blanking = false;
+                    }
+                    decoder_->process(buffer.data(), n, frame_callback);
+                }
                 
 #ifdef WITH_UI
                 if (g_ui_state && ++level_update_counter >= LEVEL_UPDATE_INTERVAL) {
@@ -859,6 +879,9 @@ private:
     std::chrono::steady_clock::time_point tx_lockout_until_;
     static constexpr float RX_LOCKOUT_SECONDS = 0.5f;
     
+    // TX blanking 
+    std::atomic<bool> tx_blanking_active_{false};
+    
 public:
     // Update config at runtime (called from UI)
     void update_config(const TNCConfig& new_config) {
@@ -867,6 +890,10 @@ public:
         config_.carrier_threshold_db = new_config.carrier_threshold_db;
         config_.p_persistence = new_config.p_persistence;
         config_.slot_time_ms = new_config.slot_time_ms;
+
+
+        // TX blanking 
+        config_.tx_blanking_enabled = new_config.tx_blanking_enabled;
         
         // Update callsign if changed
         if (config_.callsign != new_config.callsign) {
@@ -988,6 +1015,9 @@ void print_help(const char* prog) {
               << "\nFragmentation:\n"
               << "  --frag                  Enable packet fragmentation/reassembly\n"
               << "  --no-frag               Disable fragmentation (default)\n"
+              << "\nTX Blanking:\n"
+              << "  --tx-blank              Suppress decoder during TX\n"
+              << "  --no-tx-blank           Disable TX blanking (default)\n"
               << "\n"
 #ifdef WITH_UI
               << "  -h, --headless          Run without TUI\n"
@@ -1113,6 +1143,10 @@ int main(int argc, char** argv) {
             config.fragmentation_enabled = true;
         } else if (arg == "--no-frag") {
             config.fragmentation_enabled = false;
+        } else if (arg == "--tx-blank") {
+            config.tx_blanking_enabled = true;
+        } else if (arg == "--no-tx-blank") {
+            config.tx_blanking_enabled = false;
         } else {
             std::cerr << "Unknown option: " << arg << std::endl;
             print_help(argv[0]);
@@ -1171,6 +1205,7 @@ int main(int argc, char** argv) {
                 config.slot_time_ms = ui_state.slot_time_ms;
                 config.p_persistence = ui_state.p_persistence;
                 config.fragmentation_enabled = ui_state.fragmentation_enabled;
+                config.tx_blanking_enabled = ui_state.tx_blanking_enabled;
                 // Audio devices
                 config.audio_input_device = ui_state.audio_input_device;
                 config.audio_output_device = ui_state.audio_output_device;
@@ -1215,6 +1250,7 @@ int main(int argc, char** argv) {
                 ui_state.p_persistence = config.p_persistence;
                 ui_state.short_frame = config.short_frame;
                 ui_state.fragmentation_enabled = config.fragmentation_enabled;
+                ui_state.tx_blanking_enabled = config.tx_blanking_enabled;
                 // Audio devices
                 ui_state.audio_input_device = config.audio_input_device;
                 ui_state.audio_output_device = config.audio_output_device;
@@ -1268,6 +1304,7 @@ int main(int argc, char** argv) {
         
         // Sync fragmentation setting from command line to UI
         ui_state.fragmentation_enabled = config.fragmentation_enabled;
+        ui_state.tx_blanking_enabled = config.tx_blanking_enabled;
 
         ui_state.update_modem_info();
         
@@ -1329,7 +1366,7 @@ int main(int argc, char** argv) {
                 new_config.p_persistence = state.p_persistence;
                 new_config.slot_time_ms = state.slot_time_ms;
                 new_config.fragmentation_enabled = state.fragmentation_enabled;
-                // Audio devices 
+                new_config.tx_blanking_enabled = state.tx_blanking_enabled;
                 new_config.audio_input_device = state.audio_input_device;
                 new_config.audio_output_device = state.audio_output_device;
                 // PTT settings

@@ -102,6 +102,7 @@ struct TNCUIState {
     float airtime_seconds = 0.0f;
     int random_data_size = 0;
     bool fragmentation_enabled = false;
+    bool tx_blanking_enabled = false;
     
     // stats
     std::atomic<float> total_tx_time{0.0f};  
@@ -415,6 +416,7 @@ struct TNCUIState {
         fprintf(f, "slot_time_ms=%d\n", slot_time_ms);
         fprintf(f, "p_persistence=%d\n", p_persistence);
         fprintf(f, "fragmentation_enabled=%d\n", fragmentation_enabled ? 1 : 0);
+        fprintf(f, "tx_blanking_enabled=%d\n", tx_blanking_enabled ? 1 : 0);
         fprintf(f, "# Audio/PTT\n");
         fprintf(f, "audio_input=%s\n", audio_input_device.c_str());
         fprintf(f, "audio_output=%s\n", audio_output_device.c_str());
@@ -463,6 +465,7 @@ struct TNCUIState {
                 else if (strcmp(key, "slot_time_ms") == 0) slot_time_ms = atoi(value);
                 else if (strcmp(key, "p_persistence") == 0) p_persistence = atoi(value);
                 else if (strcmp(key, "fragmentation_enabled") == 0) fragmentation_enabled = atoi(value) != 0;
+                else if (strcmp(key, "tx_blanking_enabled") == 0) tx_blanking_enabled = atoi(value) != 0;
                 else if (strcmp(key, "audio_input") == 0) audio_input_device = value;
                 else if (strcmp(key, "audio_output") == 0) audio_output_device = value;
                 else if (strcmp(key, "audio_device") == 0) {
@@ -740,6 +743,7 @@ private:
         FIELD_THRESHOLD,
         FIELD_PERSISTENCE,
         FIELD_FRAGMENTATION,
+        FIELD_TX_BLANKING,
         FIELD_AUDIO_INPUT,
         FIELD_AUDIO_OUTPUT,
         FIELD_PTT_TYPE,
@@ -1240,6 +1244,11 @@ private:
                 state_.fragmentation_enabled = !state_.fragmentation_enabled;
                 state_.update_modem_info();  // Update random_data_size limits
                 state_.add_log("(!) Fragmentation changed, restart required");
+                break;
+            case FIELD_TX_BLANKING:
+                state_.tx_blanking_enabled = !state_.tx_blanking_enabled;
+                apply_settings();
+                state_.add_log(std::string("TX blanking ") + (state_.tx_blanking_enabled ? "enabled" : "disabled"));
                 break;
             case FIELD_AUDIO_INPUT:
                 break;
@@ -2279,6 +2288,19 @@ private:
         
         dy = visible_y(row);
         if (dy >= 0) draw_toggle_field(dy, c1, c2, "Enabled", FIELD_FRAGMENTATION, state_.fragmentation_enabled);
+        row += 2;
+        
+        // TX Blanking section
+        dy = visible_y(row);
+        if (dy >= 0) {
+            attron(A_DIM);
+            mvaddstr(dy, c1, "TX BLANKING");
+            attroff(A_DIM);
+        }
+        row++;
+        
+        dy = visible_y(row);
+        if (dy >= 0) draw_toggle_field(dy, c1, c2, "Enabled", FIELD_TX_BLANKING, state_.tx_blanking_enabled);
         row += 2;
         
         // Audio / ptt
