@@ -452,6 +452,11 @@ public:
     // Get current modulation bits
     int get_mod_bits() const { return mod_bits; }
     
+    // decode statistics
+    int stats_sync_count = 0;      // corelator   
+    int stats_preamble_errors = 0; // preamble decoding failed
+    int stats_symbol_errors = 0;   // seed damage
+    int stats_crc_errors = 0;      // polar CRC failed
 private:
     enum class State {
         SEARCHING,           // looking for preamble
@@ -621,6 +626,7 @@ private:
         case State::SEARCHING:
             if ((*correlator_ptr)(buf_)) {
                 // Sync found
+                ++stats_sync_count;
                 symbol_pos = correlator_ptr->symbol_pos;
                 cfo_rad = correlator_ptr->cfo_rad;
                 
@@ -638,6 +644,8 @@ private:
                     // Need to advance past preamble: symbol_pos + symbol_len + extended_len
                     // Plus extended_len for the first data symbol
                     samples_needed_ = symbol_pos + symbol_len + 2 * extended_len;
+                } else {
+                    ++stats_preamble_errors;
                 }
             }
             break;
@@ -651,6 +659,7 @@ private:
                 // Process this symbol
                 if (!process_symbol(symbol_index_)) {
                     // Error, go back to searching
+                    ++stats_symbol_errors;
                     state_ = State::SEARCHING;
                     break;
                 }
@@ -956,6 +965,7 @@ private:
         
         if (best < 0) {
             std::cerr << "Decoder: CRC failed" << std::endl;
+            ++stats_crc_errors;
             return;
         }
         

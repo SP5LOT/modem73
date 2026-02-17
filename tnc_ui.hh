@@ -151,13 +151,19 @@ struct TNCUIState {
     std::atomic<int> tx_frame_count{0};
     std::atomic<int> rx_error_count{0};
     
+    // Decode statistics
+    std::atomic<int> sync_count{0};
+    std::atomic<int> preamble_errors{0};
+    std::atomic<int> symbol_errors{0};
+    std::atomic<int> crc_errors{0};
+    std::atomic<bool> stats_reset_requested{false};
+    
     // Signal visualization
     static constexpr int LEVEL_HISTORY_SIZE = 60;
     std::mutex level_mutex;
     float level_history[LEVEL_HISTORY_SIZE]; 
     int level_history_pos = 0;
     std::atomic<bool> decoding_active{false};
-    std::atomic<int> sync_count{0};  
     
     // SNR history
     static constexpr int SNR_HISTORY_SIZE = 32;
@@ -1835,14 +1841,34 @@ private:
         attroff(COLOR_PAIR(2) | A_BOLD);
         
         addstr("  ");
-        addstr("Err");
-        int errs = state_.rx_error_count.load();
-        if (errs > 0) {
-            attron(COLOR_PAIR(2));
-            printw(" %d", errs);
-            attroff(COLOR_PAIR(2));
+        int syncs = state_.sync_count.load();
+        int total_errors = state_.preamble_errors.load() + 
+                          state_.symbol_errors.load() + 
+                          state_.crc_errors.load() +
+                          state_.rx_error_count.load();
+        if (syncs > 0) {
+            float err_pct = 100.0f * total_errors / syncs;
+            addstr("Err");
+            if (total_errors == 0) {
+                attron(COLOR_PAIR(1));
+                printw(" 0/%d", syncs);
+                attroff(COLOR_PAIR(1));
+            } else if (err_pct < 20.0f) {
+                attron(COLOR_PAIR(3));
+                printw(" %d/%d", total_errors, syncs);
+                attroff(COLOR_PAIR(3));
+            } else {
+                attron(COLOR_PAIR(2));
+                printw(" %d/%d", total_errors, syncs);
+                attroff(COLOR_PAIR(2));
+            }
+            attron(A_DIM);
+            printw(" (%.0f%%)", err_pct);
+            attroff(A_DIM);
         } else {
-            printw(" %d", errs);
+            attron(A_DIM);
+            addstr("Err 0/0");
+            attroff(A_DIM);
         }
         y++;
         
@@ -2742,6 +2768,55 @@ private:
     }
     
     void draw_log(int y, int h, int cols) {
+        // Decode stats header
+        int c1 = 3;
+        attron(A_DIM);
+        mvaddstr(y, c1, "DECODE STATS");
+        attroff(A_DIM);
+        y++;
+        
+        int syncs = state_.sync_count.load();
+        int pre_err = state_.preamble_errors.load();
+        int sym_err = state_.symbol_errors.load();
+        int crc_err = state_.crc_errors.load();
+        int unframe_err = state_.rx_error_count.load();
+        int decoded = state_.rx_frame_count.load();
+        
+        mvaddstr(y, c1, "Syncs");
+        attron(COLOR_PAIR(4));
+        printw(" %d", syncs);
+        attroff(COLOR_PAIR(4));
+        
+        addstr("  Decoded");
+        attron(COLOR_PAIR(1));
+        printw(" %d", decoded);
+        attroff(COLOR_PAIR(1));
+        
+        addstr("  CRC Fail");
+        if (crc_err > 0) attron(COLOR_PAIR(2));
+        printw(" %d", crc_err);
+        if (crc_err > 0) attroff(COLOR_PAIR(2));
+        
+        addstr("  Seed Err");
+        if (sym_err > 0) attron(COLOR_PAIR(2));
+        printw(" %d", sym_err);
+        if (sym_err > 0) attroff(COLOR_PAIR(2));
+        
+        addstr("  Pre Err");
+        if (pre_err > 0) attron(COLOR_PAIR(2));
+        printw(" %d", pre_err);
+        if (pre_err > 0) attroff(COLOR_PAIR(2));
+        
+        if (unframe_err > 0) {
+            addstr("  Unframe");
+            attron(COLOR_PAIR(2));
+            printw(" %d", unframe_err);
+            attroff(COLOR_PAIR(2));
+        }
+        
+        y += 2;
+        h -= 3;
+        
         auto log = state_.get_log();
         int visible = h - 1;
         int max_scroll = std::max(0, (int)log.size() - visible);
@@ -2893,7 +2968,7 @@ private:
                 // Ensure at least 1 grid cell per display cell (prevents striping)
                 int gx_end = std::max(gx + 1, std::min((int)((dx + 1) * scale_x), grid_size));
                 int gy_end = std::max(gy + 1, std::min((int)((dy + 1) * scale_y), grid_size));
-                
+
                 int density = 0;
                 for (int sy = gy; sy < gy_end; ++sy) {
                     for (int sx = gx; sx < gx_end; ++sx) {
@@ -3229,6 +3304,11 @@ private:
                 state_.rx_frame_count = 0;
                 state_.tx_frame_count = 0;
                 state_.rx_error_count = 0;
+                state_.sync_count = 0;
+                state_.preamble_errors = 0;
+                state_.symbol_errors = 0;
+                state_.crc_errors = 0;
+                state_.stats_reset_requested = true;
                 state_.total_tx_time = 0;
                 state_.add_log("S");
                 break;

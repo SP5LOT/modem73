@@ -787,6 +787,18 @@ private:
                     float db = 20.0f * std::log10(rms + 1e-10f);
                     
                     g_ui_state->update_level(db);
+                    
+                    // Copy decoder stats
+                    if (g_ui_state->stats_reset_requested.exchange(false)) {
+                        decoder_->stats_sync_count = 0;
+                        decoder_->stats_preamble_errors = 0;
+                        decoder_->stats_symbol_errors = 0;
+                        decoder_->stats_crc_errors = 0;
+                    }
+                    g_ui_state->sync_count = decoder_->stats_sync_count;
+                    g_ui_state->preamble_errors = decoder_->stats_preamble_errors;
+                    g_ui_state->symbol_errors = decoder_->stats_symbol_errors;
+                    g_ui_state->crc_errors = decoder_->stats_crc_errors;
                 }
 #endif
             }
@@ -880,7 +892,7 @@ private:
     std::chrono::steady_clock::time_point tx_lockout_until_;
     static constexpr float RX_LOCKOUT_SECONDS = 0.5f;
     
-    // TX blanking 
+    // TX blanking
     std::atomic<bool> tx_blanking_active_{false};
     
 public:
@@ -892,7 +904,7 @@ public:
         config_.p_persistence = new_config.p_persistence;
         config_.slot_time_ms = new_config.slot_time_ms;
         
-        // TX blanking 
+        // TX blanking
         config_.tx_blanking_enabled = new_config.tx_blanking_enabled;
         
         // Update callsign if changed
