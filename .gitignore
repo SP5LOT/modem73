@@ -5,6 +5,8 @@ modem73
 *.exe
 *.dll
 
+# Screenshots are tracked (not ignored)
+
 # Distribution packages
 *.zip
 
