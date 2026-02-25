@@ -1,2 +1,16 @@
 miniaudio.o
 modem73
+
+# Compiled binaries (Windows)
+*.exe
+*.dll
+
+# Distribution packages
+*.zip
+
+# Build artifacts and backups
+*.orig
+*.bak
+
+# Patch helper scripts
+apply_win_patch.sh

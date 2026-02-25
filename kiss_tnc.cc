@@ -15,15 +15,10 @@
 #include <memory>
 #include <random>
 
-// Network
-#include <sys/socket.h>
+// Network - Windows compat (zastępuje POSIX socket headers)
+#include "windows_socket_compat.hh"
 #include <sys/stat.h>
-#include <netinet/in.h>
-#include <netinet/tcp.h>
-#include <arpa/inet.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <poll.h>
+#include <io.h>
 
 // Local includes
 #include "kiss_tnc.hh"
@@ -39,18 +34,26 @@
 #include "tnc_ui.hh"
 #endif
 
+#ifdef MODEM73_GUI_MODE
+// Globals defined in modem73_gui.cc - declared extern here
+extern std::atomic<bool> g_running;
+extern TNCConfig g_config;
+extern bool g_verbose;
+extern bool g_use_ui;
+extern TNCUIState* g_ui_state;
+#else
 std::atomic<bool> g_running{true};
 TNCConfig g_config;
 bool g_verbose = false;
 #ifdef WITH_UI
-bool g_use_ui = true;  
+bool g_use_ui = true;
 #else
 bool g_use_ui = false;
 #endif
-
 #ifdef WITH_UI
 TNCUIState* g_ui_state = nullptr;
 #endif
+#endif // MODEM73_GUI_MODE
 
 void signal_handler(int /*sig*/) {
     std::cerr << "\nShutting down..." << std::endl;
@@ -59,6 +62,7 @@ void signal_handler(int /*sig*/) {
 
 
 
+#ifndef MODEM73_GUI_MODE
 inline void ui_log(const std::string& msg) {
 #ifdef WITH_UI
     if (g_ui_state) {
@@ -69,6 +73,10 @@ inline void ui_log(const std::string& msg) {
         std::cerr << msg << std::endl;
     }
 }
+#else
+// ui_log defined in modem73_gui.cc
+void ui_log(const std::string& msg);
+#endif
 
 bool check_port_available(const std::string& bind_address, int port) {
     int sock = socket(AF_INET, SOCK_STREAM, 0);
@@ -77,7 +85,7 @@ bool check_port_available(const std::string& bind_address, int port) {
     }
     
     int opt = 1;
-    setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, (const char*)&opt, sizeof(opt));
     
     struct sockaddr_in addr;
     memset(&addr, 0, sizeof(addr));
@@ -86,7 +94,7 @@ bool check_port_available(const std::string& bind_address, int port) {
     addr.sin_port = htons(port);
     
     int result = bind(sock, (struct sockaddr*)&addr, sizeof(addr));
-    close(sock);
+    WIN_CLOSE_SOCKET(sock);
     
     return result == 0;
 }
@@ -114,9 +122,9 @@ public:
         std::lock_guard<std::mutex> lock(write_mutex);
         if (write_buffer.empty()) return true;
         
-        ssize_t sent = ::send(fd, write_buffer.data(), write_buffer.size(), MSG_NOSIGNAL);
+        ssize_t sent = ::send(fd, (const char*)write_buffer.data(), (int)write_buffer.size(), 0);
         if (sent < 0) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) return true;
+            if (WSAGetLastError() == WSAEWOULDBLOCK) return true;
             return false;
         }
         write_buffer.erase(write_buffer.begin(), write_buffer.begin() + sent);
@@ -218,7 +226,7 @@ public:
         }
         
         int opt = 1;
-        setsockopt(server_fd_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+        setsockopt(server_fd_, SOL_SOCKET, SO_REUSEADDR, (const char*)&opt, sizeof(opt));
         
         struct sockaddr_in addr;
         memset(&addr, 0, sizeof(addr));
@@ -227,16 +235,17 @@ public:
         addr.sin_port = htons(config_.port);
         
         if (bind(server_fd_, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
-            close(server_fd_);
+            WIN_CLOSE_SOCKET(server_fd_);
             throw std::runtime_error("Failed to bind to port " + std::to_string(config_.port));
         }
-        
+
         if (listen(server_fd_, 5) < 0) {
-            close(server_fd_);
+            WIN_CLOSE_SOCKET(server_fd_);
             throw std::runtime_error("Failed to listen");
         }
-        
-        fcntl(server_fd_, F_SETFL, O_NONBLOCK);
+
+        // fcntl(server_fd_, F_SETFL, O_NONBLOCK);  // POSIX - na Windows socket jest nonblocking przez WSAEventSelect lub ioctlsocket
+        u_long nb = 1; ioctlsocket(server_fd_, FIONBIO, &nb);
         
         std::cerr << "KISS TNC listening on " << config_.bind_address << ":" << config_.port << std::endl;
         std::cerr << "Callsign: " << config_.callsign << std::endl;
@@ -290,8 +299,8 @@ public:
             if (client_fd >= 0) {
                 // Set TCP_NODELAY
                 int flag = 1;
-                setsockopt(client_fd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
-                fcntl(client_fd, F_SETFL, O_NONBLOCK);
+                setsockopt(client_fd, IPPROTO_TCP, TCP_NODELAY, (const char*)&flag, sizeof(flag));
+                { u_long nb = 1; ioctlsocket(client_fd, FIONBIO, &nb); }
                 
                 char ip_str[INET_ADDRSTRLEN];
                 inet_ntop(AF_INET, &client_addr.sin_addr, ip_str, sizeof(ip_str));
@@ -319,14 +328,14 @@ public:
                     
                     // Read data
                     uint8_t buf[4096];
-                    ssize_t n = recv(client->fd, buf, sizeof(buf), MSG_DONTWAIT);
+                    ssize_t n = recv(client->fd, (char*)buf, (int)sizeof(buf), 0);
                     
                     if (n > 0) {
                         client->parser.process(buf, n);
-                    } else if (n == 0 || (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK)) {
+                    } else if (n == 0 || (n < 0 && WSAGetLastError() != WSAEWOULDBLOCK)) {
                         // Disconnected
                         ui_log("Client disconnected");
-                        close(client->fd);
+                        WIN_CLOSE_SOCKET(client->fd);
                         it = clients_.erase(it);
 #ifdef WITH_UI
                         if (g_ui_state) {
@@ -335,11 +344,11 @@ public:
 #endif
                         continue;
                     }
-                    
+
                     // Flush write buffer
                     if (!client->flush()) {
                         ui_log("Client write error, disconnecting");
-                        close(client->fd);
+                        WIN_CLOSE_SOCKET(client->fd);
                         it = clients_.erase(it);
 #ifdef WITH_UI
                         if (g_ui_state) {
@@ -364,9 +373,9 @@ public:
         rx_thread.join();
         
         for (auto& client : clients_) {
-            close(client->fd);
+            WIN_CLOSE_SOCKET(client->fd);
         }
-        close(server_fd_);
+        WIN_CLOSE_SOCKET(server_fd_);
     }
     
 private:
@@ -1039,6 +1048,73 @@ void print_help(const char* prog) {
               << "\nSettings are saved to ~/.config/modem73/settings\n";
 }
 
+// run_tnc() - called by GUI in a background thread
+#ifdef MODEM73_GUI_MODE
+void run_tnc(TNCConfig& config, TNCUIState& ui_state, std::atomic<bool>& /*running*/) {
+    g_ui_state = &ui_state;
+    try {
+        KISSTNC tnc(config);
+
+        // Set up callbacks (same as WITH_UI path in main())
+        ui_state.on_stop_requested = []() { g_running = false; };
+
+        ui_state.on_send_data = [&tnc](const std::vector<uint8_t>& data) {
+            tnc.queue_data(data);
+        };
+
+        ui_state.on_reconnect_audio = [&tnc]() -> bool {
+            return tnc.reconnect_audio();
+        };
+
+        ui_state.on_settings_changed = [&tnc](TNCUIState& state) {
+            TNCConfig nc = tnc.get_config();
+            nc.callsign              = state.callsign;
+            nc.center_freq           = state.center_freq;
+            nc.modulation            = MODULATION_OPTIONS[state.modulation_index];
+            nc.code_rate             = CODE_RATE_OPTIONS[state.code_rate_index];
+            nc.short_frame           = state.short_frame;
+            nc.csma_enabled          = state.csma_enabled;
+            nc.carrier_threshold_db  = state.carrier_threshold_db;
+            nc.p_persistence         = state.p_persistence;
+            nc.slot_time_ms          = state.slot_time_ms;
+            nc.fragmentation_enabled = state.fragmentation_enabled;
+            nc.tx_blanking_enabled   = state.tx_blanking_enabled;
+            nc.audio_input_device    = state.audio_input_device;
+            nc.audio_output_device   = state.audio_output_device;
+            nc.ptt_type              = static_cast<PTTType>(state.ptt_type_index);
+            nc.rigctl_host           = state.rigctl_host;
+            nc.rigctl_port           = state.rigctl_port;
+            nc.vox_tone_freq         = state.vox_tone_freq;
+            nc.vox_lead_ms           = state.vox_lead_ms;
+            nc.vox_tail_ms           = state.vox_tail_ms;
+            nc.com_port              = state.com_port;
+            nc.com_ptt_line          = state.com_ptt_line;
+            nc.com_invert_dtr        = state.com_invert_dtr;
+            nc.com_invert_rts        = state.com_invert_rts;
+            tnc.update_config(nc);
+        };
+
+        // Status monitoring thread
+        std::thread status_thr([&tnc, &ui_state]() {
+            while (g_running) {
+                ui_state.rigctl_connected = tnc.is_rigctl_connected();
+                ui_state.audio_connected  = tnc.is_audio_healthy();
+                std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            }
+        });
+
+        tnc.run();
+        g_running = false;
+
+        if (status_thr.joinable()) status_thr.join();
+
+    } catch (const std::exception& e) {
+        ui_state.add_log(std::string("TNC error: ") + e.what());
+    }
+}
+#endif // MODEM73_GUI_MODE
+
+#ifndef MODEM73_GUI_MODE
 int main(int argc, char** argv) {
     TNCConfig config;
     
@@ -1169,7 +1245,9 @@ int main(int argc, char** argv) {
 
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
+#ifndef _WIN32
     signal(SIGPIPE, SIG_IGN);
+#endif
     
 #ifdef WITH_UI
     TNCUIState ui_state;
@@ -1180,7 +1258,11 @@ int main(int argc, char** argv) {
         const char* home = getenv("HOME");
         if (home) {
             std::string config_dir = std::string(home) + "/.config/modem73";
+#ifdef _WIN32
+            CreateDirectoryA(config_dir.c_str(), nullptr);
+#else
             mkdir(config_dir.c_str(), 0755);
+#endif
             ui_state.config_file = config_dir + "/settings";
             ui_state.presets_file = config_dir + "/presets";
             
@@ -1441,3 +1523,4 @@ int main(int argc, char** argv) {
     
     return 0;
 }
+#endif // MODEM73_GUI_MODE

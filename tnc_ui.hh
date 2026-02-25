@@ -87,7 +87,7 @@ struct TNCUIState {
     int vox_tail_ms = 100;      // ms
     
     // COM/Serial PTT settings (PTT type 3)
-    std::string com_port = "/dev/ttyUSB0";
+    std::string com_port = "COM3";
     int com_ptt_line = 1;       // 0=DTR, 1=RTS, 2=BOTH
     bool com_invert_dtr = false;
     bool com_invert_rts = false;

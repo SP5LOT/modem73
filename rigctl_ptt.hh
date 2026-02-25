@@ -3,11 +3,7 @@
 #include <string>
 #include <iostream>
 #include <cstring>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <unistd.h>
-#include <netdb.h>
+#include "windows_socket_compat.hh"
 
 class RigctlPTT {
 public:
@@ -30,7 +26,7 @@ public:
         struct hostent* server = gethostbyname(host_.c_str());
         if (!server) {
             std::cerr << "rigctl PTT: Can't connect to host " << host_ << std::endl;
-            close(sock_);
+            WIN_CLOSE_SOCKET(sock_);
             sock_ = -1;
             return false;
         }
@@ -43,7 +39,7 @@ public:
         
         if (::connect(sock_, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
             std::cerr << "rigctl: Can't connect to " << host_ << ":" << port_ << std::endl;
-            close(sock_);
+            WIN_CLOSE_SOCKET(sock_);
             sock_ = -1;
             return false;
         }
@@ -60,7 +56,7 @@ public:
             if (ptt_on_) {
                 set_ptt(false);
             }
-            close(sock_);
+            WIN_CLOSE_SOCKET(sock_);
             sock_ = -1;
         }
         connected_ = false;

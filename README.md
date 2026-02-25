@@ -6,11 +6,25 @@
   </picture>
 </p>
 
-MODEM73 is a [KISS](https://en.wikipedia.org/wiki/KISS_(amateur_radio_protocol)) TNC frontend for the [aicodix](https://github.com/aicodix/modem) OFDM modem. 
+MODEM73 is a [KISS](https://en.wikipedia.org/wiki/KISS_(amateur_radio_protocol)) TNC frontend for the [aicodix](https://github.com/aicodix/modem) OFDM modem.
 
+> **This is a fork of [RFnexus/modem73](https://github.com/RFnexus/modem73)** adding a native Windows GUI and pre-built Windows binaries.
+> All credit for the original modem73 TNC goes to [RFnexus](https://github.com/RFnexus). Many thanks!
 
 ![Screenshot](https://i.ibb.co/4ZhhvcQs/Peek-2026-01-01-10-41.gif)
 
+
+## Windows GUI (Pre-built)
+
+A ready-to-run Windows GUI version is available — no compilation or MSYS2 required.
+
+📥 **[Download modem73_gui_windows.zip from Releases](../../releases)**
+
+Just unzip and run `modem73_gui.exe`. Full documentation:
+- 🇬🇧 [Windows GUI User Guide (English)](WINDOWS_GUI.md)
+- 🇵🇱 [Podręcznik Windows GUI (Polski)](WINDOWS_GUI_PL.md)
+
+---
 
 ## Building
 
