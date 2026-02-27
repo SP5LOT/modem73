@@ -53,13 +53,17 @@ public:
     
     void disconnect() {
         if (sock_ >= 0) {
-            if (ptt_on_) {
-                set_ptt(false);
+            if (ptt_on_ && connected_) {
+                // Wyślij PTT off bezpośrednio — bez set_ptt(), żeby uniknąć rekurencji
+                // gdy send() zawiedzie (set_ptt → disconnect → set_ptt → ∞)
+                const char* cmd = "T 0\n";
+                send(sock_, cmd, 4, 0);  // best-effort, ignorujemy błąd
             }
             WIN_CLOSE_SOCKET(sock_);
             sock_ = -1;
         }
         connected_ = false;
+        ptt_on_ = false;
     }
 
 
@@ -84,7 +88,7 @@ public:
         if (n > 0) {
             response[n] = '\0';
             // rigctld returns RPRT 0 on success
-            if (strstr(response, "RPRT 0") || n == 0) {
+            if (strstr(response, "RPRT 0")) {
                 ptt_on_ = on;
                 std::cerr << "rigctl: PTT " << (on ? "ON" : "OFF") << std::endl;
                 return true;
